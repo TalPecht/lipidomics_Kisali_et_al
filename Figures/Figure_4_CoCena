@@ -1,0 +1,1102 @@
+---
+title: "hcocena_lipidomics"
+output: html_document
+date: "2026-02-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Figure 4: hCoCena
+This part is run with the container mo126/cocena:v1.1.1
+
+docker pull mo126/hcocena:v1.1.1
+docker run -d -p 8787:8787 -e USER=pachtt -e PASSWORD=tal -v C:/Users/pachtt/Sciebo/dzne_laptop/TransMic/TZ/Lipidomics/00_final_QC:/home/pachtt/analysis --name hcocena_analysis_260217 mo126/hcocena:v1.1.1
+
+ LOAD FROM SCREEN THE DATA: 50617_lipidomics_data_for_hcocena.RData
+## 4.0. Load data for this analysis
+```{r}
+load("./Data/260617_lipidomics_data_for_hcocena.RData")
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ggsci)
+library(reshape2)
+library(stringr)
+library(tidyr)
+library(tibble)
+library(limma)
+```
+
+```{r}
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# 
+# BiocManager::install("limma", update = F, force = T)
+```
+
+
+## 4.1 Pre-Integration Phase
+
+### 4.1.1 Load hCoCena package
+```{r}
+library(limma)
+library(hcocena)
+```
+
+
+### 4.1.2 Create hCoCena-Object
+
+```{r}
+init_object()
+```
+
+
+### 4.1.3 Set-up of the working directory
+
+  Please set the following parameters to strings that state the path to your expression data, meta data, etc. For more information on the different files and how to pass them to the function, please refer to the following section of the wiki: https://github.com/MarieOestreich/hCoCena/wiki/General-Backgroud-Information#count-files-annotation-files--reference-files
+  
+  + dir_count_data: path of your count files folder, set FALSE if you are NOT loading expression data from files but instead are using existing 
+  data frames in your environment.
+  + dir_annotation: path of your annotation files folder, set FALSE if you are NOT loading annotation data from files but instead are using existing 
+  data frames in your environment.
+  + dir_reference_files: path of your reference files folder (the folder with corresponding files can be downloaded from the github repo https://github.com/MarieOestreich/hCoCena, they are contained in the folder 'reference_files')
+  + dir_output: path to the location in which the save folder for this analyses should be created (e.g., "~/" for your home directory).
+
+### ... add age group to sample table
+```{r}
+sample_table$age_cat <- ifelse(sample_table$age <= 30, "_30", 
+                                         ifelse(sample_table$age > 30 &  sample_table$age <= 45, "_30_45", 
+                                                ifelse(sample_table$age > 45, "_45", NA)))
+
+sample_table$age_cat <- factor(sample_table$age_cat, levels = c("_30","_30_45","_45"))
+
+table(sample_table$age_cat, sample_table$sex)
+```
+```{r}
+sample_table$sex_age <- paste0(sample_table$sex,sample_table$age_cat)
+
+sample_table$sex_age <- factor(sample_table$sex_age)
+
+unique(sample_table$sex_age)
+```
+
+
+```{r}
+init_wd(dir_count_data = FALSE,
+        dir_annotation = FALSE,
+        dir_reference_files = FALSE,
+        dir_output = "./Figures/2026/Figure5/outputs_260622_30_45/")
+
+```
+
+  Ensure that all directories exist with the following chunk:
+
+```{r check directories}
+check_dirs()
+```
+
+  Please define a folder in which your results shall be saved using the 'name' variable. 
+  The folder is created automatically, if it does not yet exist in the set directory.
+  
+```{r, warning = FALSE}
+
+init_save_folder(name = "outputs_260622_30_45")
+
+```
+
+
+### 4.1.4 Defining layers
+
+  For detailed information regarding the structures of the count and annotation data as well as different options for providing data, refer to the function documentation by entering ?hcocena::define_layers into the console.
+  For detailed information regarding the structures of custom pathway to gene files or databases, refer to the function documentation by entering ?hcocena::set_supp_files into the console.
+
+    
+```{r defining Omics Layers}
+
+define_layers(list(lipids = c("expr_bmi_removed", "sample_table")))
+
+set_supp_files(Tf = "TFcat.txt", 
+               Go = "c5.go.bp.v2023.1.Hs.symbols.gmt",
+               Hallmark = "h.all.v2023.1.Hs.symbols.gmt",
+               Kegg = "c2.cp.kegg.v2023.1.Hs.symbols.gmt")
+
+```
+
+
+### 4.1.5 Data import
+
+  For detailed information regarding the different parameters, enter ?hcocena::read_data into the console.
+
+
+```{r data import}
+
+read_data(sep_counts = "\t",
+           sep_anno = "\t", 
+           gene_symbol_col = "SYMBOL",
+           sample_col = "sample",
+           count_has_rn = F,
+           anno_has_rn = F)
+
+#read_supplementary()
+
+```
+
+
+
+###  4.1.6 Define global settings
+
+  For detailed information regarding the different settings, enter ?hcocena::set_global_settings into the console.
+
+```{r global settings}
+
+set_global_settings(organism = "human",
+                    control_keyword = "none", 
+    								variable_of_interest = "sex_age", 
+    								min_nodes_number_for_network = 3, 
+    								min_nodes_number_for_cluster = 3,
+    								range_GFC = 1.2,
+    								layout_algorithm = "layout_with_fr",
+    								data_in_log = T)
+
+```
+
+
+
+### 4.1.7 Define layer-specific settings
+
+  For detailed information regarding the different settings, enter ?hcocena::set_layer_settings into the console.
+  
+
+```{r layer-specific settings}
+
+set_layer_settings(top_var = c("all", "all"), 
+                   min_corr = rep(0.2, length(hcobject[["layers"]])), 
+                   range_cutoff_length = rep(100, length(hcobject[["layers"]])),
+                   print_distribution_plots = rep(F, length(hcobject[["layers"]])))
+
+
+```
+
+
+  
+### 4.1.8 Data processing part I
+
+  For detailed information on what happens in this step and what parameters can be set, enter ?hcocena::run_expression_analysis_1 into the console.
+  
+
+```{r expression analysis up to cutoff}
+
+run_expression_analysis_1(corr_method = "spearman")
+
+```
+
+
+### 4.1.9 Data processing part II
+
+
+  **Choosing the cut-offs:**
+
+  Set a correlation cut-off for each of your data sets. To aid this choice, the following plot presents the different cut-off statistics per data set. For more details on cut-offs and the information in this plot as well as the parameters, enter ?hcocena::plot_cutoffs into the console.
+  
+  
+```{r fig.height = 8, fig.width = 15}
+
+plot_cutoffs(interactive = T)
+
+```
+  
+  
+  The order in which the cutoffs are subsequently defined must correspond to the order in which the layers have previously been specified.
+  
+
+```{r choose cutoff}
+
+set_cutoff(cutoff_vector = c(0.671))
+# no edges 776, no. nodes 173, no. networks = 11, r2 = 0.71
+```
+
+
+  **Checking the scale-free topology**
+
+  For each data set, the logged degree distribution and the linear regression are plotted to visualize the preservation of the scale-free topology criterion.
+  NOTE: Even though biological networks are generally believed to follow a scale-free topology, experience has shown that a lot of transcriptomics data does not follow this principle perfectly. A deviation from the regression line is often observed at higher x-axis values. 
+
+
+```{r plot degree distribution for chosen cutoff, message = F, warning = F}
+
+plot_deg_dist()
+
+```
+
+
+  **Heatmap of top most variant genes and GFC calculation**
+
+  This function plots a heatmap for the network genes in each data layer and computes the Group-Fold-Changes for each genes per layer.
+
+
+```{r, fig.width = 10, fig.height = 7}
+
+run_expression_analysis_2()
+
+```
+
+
+
+## 4.2 Integration Phase
+
+  **Integrating the layer-specific networks**
+  
+  Here, the previously constructed layer-specific networks will be integrated into one network that combines the information. The integration can be based on the union or intersection of layer-specific networks. Edges that are present in several networks with different lengths can be included based on different options. For detailed information, please refer to the Info Pages in the repository's Wiki.
+  
+```{r merge networks}
+
+build_integrated_network(mode = "u", multi_edges = "min")
+
+```
+
+  
+
+##  4.3 Post-Integration Phase
+
+### 4.3.1 Module detection
+
+  **Clustering the network**
+  
+  In this step, modules of strong co-expression will be detected in the network and their expression pattern across conditions will be represented in a GFC heatmap. For more information on the available clustering algorithms and setting the clustering resolution, run ?hcocena::cluster_calculation and visit the repository's Wiki pages.
+  NOTE: You can export your clustering for future use. To do so, please refer to the satellite script, section "Export clustering".
+  NOTE 2: Instead of clustering your network here, you can alternatively import a clustering model. To do so, please use the import_clusters() function (see satellite markdown for infos).
+  
+```{r compute clusters and plot module heatmap}
+cluster_calculation(cluster_algo = "cluster_leiden", 
+                    no_of_iterations = 2, 
+                    resolution = 0.1, 
+                    partition_type = "ModularityVertexPartition",  
+                    max_cluster_count_per_gene = 1)
+plot_cluster_heatmap(cluster_columns = FALSE)
+```
+
+### 4.3.2 Plotting the network coloured by module
+
+NOTE: due to issues in the communication between R and Cytoscape, please refer to the satellite markdown, section "Cytoscape" if you chose Cytoscape as the option for the network layout in your global settings.
+
+
+```{r plot network coloured by cluster, fig.width=10, fig.height=7}
+
+plot_integrated_network() 
+
+```
+
+```{r}
+# plot_sample_distributions(plot_type = "boxplot",
+#                           log_2 = F, 
+#                           plot = T)
+```
+
+```{r}
+PCA(which = "all", color_by = c("sex_age"))
+
+```
+
+## 4.4. coloured by GFC
+
+  You can re-plot the network for each condition colouring the nodes according to their GFC in the different conditions. To do so, please refer to the section "Plotting network coloured by GFC" in the satellite markdown.
+```{r}
+plot_GFC_network()
+```
+  
+## 4.5. hubs
+```{r}
+# find_hubs(clusters = "all", top = 3, save = T, plot = T,tree_layout = F, TF_only = F)
+
+```
+Error in UseMethod("select") : 
+  no applicable method for 'select' applied to an object of class "c('matrix', 'array', '
+  
+## 4.6. lipids analysis network
+```{r}
+col_sex_age <- setNames(ggsci::pal_nejm()(6), unique(sample_table$sex_age))
+anno_colours[["sex_age"]] <- col_sex_age
+col_sex_age
+```
+#### extract lipids from subnetworks
+```{r}
+lipidclusters <- hcobject$integrated_output$cluster_calc$cluster_information
+rownames(lipidclusters) <- lipidclusters$color
+lipidclusters
+```
+```{r}
+lipidclusters <- apply(lipidclusters, 1, function(x){
+  strsplit(x[["gene_n"]],"," )
+})
+
+lipidclusters
+```
+```{r}
+col_cluster <- names(lipidclusters)
+names(col_cluster) <- col_cluster
+```
+
+```{r}
+clusters_melt <- reshape2::melt(lipidclusters)
+clusters_melt$L2 <- NULL
+colnames(clusters_melt) <- c("lipid","cluster")
+
+# add lipidsa annotation
+clusters_melt <- merge(clusters_melt, lipids_anno_present, by.x = "lipid", by.y = "NAME", all.x = T)
+```
+
+
+
+
+
+```{r fig.height=18, fig.width=7}
+clusters <- sort(unique(clusters_melt$cluster))
+
+x_rng <- range(clusters_melt$C, na.rm = TRUE)
+y_rng <- range(clusters_melt$db, na.rm = TRUE)
+
+make_panel <- function(cl) {
+  
+  df_cl <- clusters_melt %>%
+    filter(cluster == cl)
+  
+  comp_cl <- df_cl %>%
+    count(CLASS) %>%
+    mutate(pct = n / sum(n))
+  
+  n_points <- nrow(df_cl)
+  
+  p_scatter <- ggplot(df_cl, aes(x = C, y = db, color = CLASS)) +
+    geom_point(shape = 15, size = 2) +
+    scale_color_manual(values = anno_colours$CLASS) +
+    coord_cartesian(xlim = x_rng, ylim = y_rng) +
+    theme_bw() +
+    labs(title =  paste0("Cluster ", cl, " (n=", n_points, ")"), x = "C", y = "db")
+  
+  p_bar <- ggplot(comp_cl, aes(x = 1, y = pct, fill = CLASS)) +
+    geom_col(width = 0.75, color = "black") +
+    scale_fill_manual(values = anno_colours$CLASS) +
+    scale_y_continuous(
+      labels = percent_format(),
+      position = "right",
+      limits = c(0, 1),
+      breaks = c(0, 0.25, 0.5, 0.75, 1)
+    ) +
+    theme_bw() +
+    labs(x = NULL, y = NULL) +
+    theme(
+      axis.text.x = element_blank(),
+      axis.ticks.x = element_blank(),
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor = element_blank(),
+      plot.margin = margin(5.5, 5.5, 5.5, 0)
+    )
+  
+  p_scatter + p_bar +
+    plot_layout(widths = c(5, 0.8))
+}
+
+final_plot <- wrap_plots(
+  lapply(clusters, make_panel),
+  ncol = 2,
+  guides = "collect"
+) &
+  theme(
+    legend.position = "bottom"
+  )
+
+final_plot
+```
+
+## 4.7. GFC plots
+```{r}
+gfc <- hcobject$integrated_output$GFC_all_layers
+
+gfc$cluster <- NA
+
+for (i in names(lipidclusters)){
+gfc$cluster <- ifelse(gfc$Gene %in% unlist(lipidclusters[[i]]), i , gfc$cluster)
+}
+
+gfc_melt <- reshape2::melt(gfc)
+
+head(gfc_melt)
+```
+```{r}
+gfc_melt <- merge(gfc_melt, lipids_anno_present, by.x = "Gene", by.y = "NAME", all.x = T)
+
+head(gfc_melt)
+```
+
+```{r}
+gfc_melt$sex <- stringr::str_split_fixed(gfc_melt$variable,"_",2)[,1]
+gfc_melt$sex <- factor(gfc_melt$sex, levels = c("Female","Male"))
+
+gfc_melt$age_cat <- paste0("_",stringr::str_split_fixed(gfc_melt$variable,"_",2)[,2])
+gfc_melt$age_cat <- factor(gfc_melt$age_cat, levels = c("_30","_30_45","_45"))
+```
+
+### heatmap lipids by cluster
+
+```{r}
+library(tidyr)
+library(pheatmap)
+```
+
+
+
+```{r fig.height=12}
+## add age_sex 
+lipids__log_long$sex_age <- sample_table[match(lipids__log_long$sample, sample_table$sample),"sex_age"]
+
+list_hm_cocena <- list()
+for(i in unique(gfc_melt$cluster)){
+  
+  # heatmap
+  voi <- subset(gfc_melt, cluster == i)$Gene
+
+  tmp <- subset(lipids__log_long, NAME %in% voi)
+
+  tmp <- tmp %>% group_by(NAME, sex_age) %>% 
+                     summarise(median_log_pmol = median(pmol_log, na.rm = T))
+
+  tmp <- as.data.frame(spread(tmp, value = "median_log_pmol", key = "sex_age"))
+
+  rownames(tmp) <- tmp$NAME
+
+  tmp$NAME <- NULL
+
+  tmp_scale <- t(scale(t(tmp), center = T))
+
+  list_hm_cocena[[i]] <-
+pheatmap(tmp_scale, 
+         cluster_cols = F, 
+         cluster_rows = F, 
+         cellwidth = 20, 
+         cellheight = 10, 
+         angle_col = 45,  main = i)
+
+}
+```
+
+
+
+
+
+## 4.8. gfc ind
+```{r}
+cut_hclust(
+  by = "module",
+  set = "all",
+  method = "complete",
+  k = c(1,1),
+  save = F
+)
+```
+```{r}
+gfc.ind <- hcobject$satellite_outputs$FC_samples_X_clusters
+gfc.ind_melt <- as.data.frame(gfc.ind)
+gfc.ind_melt$cluster <- rownames(gfc.ind_melt)
+
+gfc.ind_melt <- reshape2::melt(gfc.ind_melt, id.vars = "cluster")
+
+head(gfc.ind_melt)
+```
+```{r}
+gfc.ind_melt$sample <- gsub("layer_1.","", gfc.ind_melt$variable)
+
+gfc.ind_melt <- merge(gfc.ind_melt, sample_table, by = "sample", all.x = T)
+
+head(gfc.ind_melt)
+```
+
+
+
+```{r}
+# Sex
+col_sex <- c("#B309B3", "#33b3a6")
+names(col_sex) <- c("Female", "Male")
+
+ggplot(gfc.ind_melt,aes(x= age_cat, y= value, group = sex))+
+  stat_summary(
+    fun.data = mean_se,
+    geom = "ribbon",
+    alpha = 0.2, 
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 0.5, aes(color = sex)
+  ) +
+  scale_color_manual(values = col_sex)+
+  theme_bw()+
+  facet_wrap(.~cluster, scales = "free_y")
+```
+
+
+### 4.8.1. age_sex - interaction
+```{r}
+
+
+# metadata
+meta <- gfc.ind_melt %>%
+  select(PID, sex, age_cat) %>%
+  distinct()
+
+stopifnot(!anyDuplicated(meta$PID))
+
+meta <- meta %>%
+  mutate(
+    sex = factor(sex, levels = c("Male", "Female")),
+    age_cat = factor(age_cat, levels = c("_30", "_30_45", "_45")),
+    age_sex = paste0(age_cat, "_", sex),
+    age_sex = factor(
+      age_sex,
+      levels = c(
+        "_30_Male", "_30_45_Male", "_45_Male",
+        "_30_Female", "_30_45_Female", "_45_Female"
+      )
+    )
+  ) %>%
+  column_to_rownames("PID")
+
+# expression matrix: rows = clusters, columns = PIDs
+expr <- gfc.ind_melt %>%
+  select(PID, cluster, value) %>%
+  group_by(cluster, PID) %>%
+  summarise(value = mean(value, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = PID, values_from = value) %>%
+  column_to_rownames("cluster") %>%
+  as.matrix()
+
+# match metadata to expression columns
+meta <- meta[colnames(expr), ]
+stopifnot(all(rownames(meta) == colnames(expr)))
+
+
+```
+```{r}
+# design
+design <- model.matrix(~ 0 + age_sex, data = meta)
+colnames(design) <- make.names(colnames(design))
+
+colnames(design)
+
+## contrasts
+cont <- makeContrasts(
+  age30_45_vs_30 =
+    (age_sex_30_45_Female - age_sex_30_Female) -
+    (age_sex_30_45_Male   - age_sex_30_Male),
+
+  age45_vs_30 =
+    (age_sex_45_Female - age_sex_30_Female) -
+    (age_sex_45_Male   - age_sex_30_Male),
+
+  age45_vs_30_45 =
+    (age_sex_45_Female    - age_sex_30_45_Female) -
+    (age_sex_45_Male      - age_sex_30_45_Male),
+
+  levels = design
+)
+
+## fit model
+fit <- lmFit(expr, design)
+fit <- contrasts.fit(fit, cont)
+fit <- eBayes(fit)
+```
+```{r}
+interaction_results_df <- lapply(colnames(cont), function(coef_name) {
+  topTable(
+    fit,
+    coef = coef_name,
+    number = Inf,
+    adjust.method = "BH"
+  ) %>%
+    rownames_to_column("cluster") %>%
+    mutate(test = coef_name)
+}) %>%
+  bind_rows()
+
+head(interaction_results_df)
+```
+
+
+
+
+```{r}
+interaction_results_df <- add_significance(interaction_results_df, p.col = "adj.P.Val")
+interaction_results_df$label <- ifelse(interaction_results_df$adj.P.Val < 0.05, interaction_results_df$adj.P.Val.signif,
+                                       ifelse(interaction_results_df$adj.P.Val < 0.1, "#", ""))
+
+interaction_results_df<- add_significance(interaction_results_df, p.col = "P.Value")
+interaction_results_df$label.raw <- ifelse(interaction_results_df$P.Value < 0.05, interaction_results_df$P.Value.signif,
+                                       ifelse(interaction_results_df$P.Value < 0.1, "#", ""))
+
+adjp_hm <- ggplot(interaction_results_df, aes(x = test, y = cluster))+
+  geom_tile(aes(fill = logFC))+
+  scale_fill_gradient2(low= "blue", mid = "white", high = "red", midpoint = 0)+
+  geom_text(aes(label = label), size = 6)+
+  theme(aspect.ratio = 2, axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1))+ ggtitle("adj.p")
+
+rawp_hm <- ggplot(interaction_results_df, aes(x = test, y = cluster))+
+  geom_tile(aes(fill = logFC))+
+  scale_fill_gradient2(low= "blue", mid = "white", high = "red", midpoint = 0)+
+  geom_text(aes(label = label.raw), size = 6)+
+  theme(aspect.ratio = 2, axis.text.x = element_text(angle = 30, vjust = 1, hjust = 1))+ggtitle("raw p")
+
+
+adjp_hm + rawp_hm
+
+```
+ plot all raw.p below 0.1 as violin plots
+```{r}
+voi <- unique(interaction_results_df[interaction_results_df$P.Value < 0.1, ]$cluster)
+
+voi
+```
+```{r}
+ggplot(
+  subset(gfc.ind_melt, cluster %in% voi),
+  aes(
+    x = age_cat,
+    y = value,
+    fill = sex
+  )
+) +
+  geom_violin(
+    position = position_dodge(width = 0.8),
+    trim = FALSE
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    fill = "white",
+    position = position_dodge(width = 0.8),
+    outlier.shape = NA, aes(color = sex)
+  ) +
+  scale_color_manual(values = col_sex)+
+  scale_fill_manual(values = col_sex)+
+  facet_wrap(~cluster, scales = "free_y") +
+  theme_bw()
+```
+
+
+
+### 4.8.2. ~ 0 + sex + age
+
+ Contrasts
+```{r}
+form <- ~  0 + age_cat + sex
+
+sample_table$sex <- factor(sample_table$sex, levels = c("Male","Female"))
+
+design <- model.matrix(form, sample_table)
+colnames(design) <- make.names(colnames(design))
+
+coefs <- colnames(design)
+coefs <- coefs[which(!coefs %in% c("(Intercept)","age_center","bmi_center"))]
+
+coefs
+```
+ Test
+```{r}
+design <- model.matrix(~ 0 + age_cat + sex, data = sample_table)
+colnames(design) <- make.names(colnames(design))
+
+fit_reg <- lmFit(gfc.ind$layer_1, design)
+
+L <- makeContrasts(
+  sex = sexFemale,
+  age_30_45_vs_30 = age_cat_30_45 - age_cat_30,
+  age_45_vs_30_45 = age_cat_45 - age_cat_30_45,
+  age_45_vs_30 = age_cat_45 - age_cat_30,
+  levels = design
+)
+
+fit2_reg <- contrasts.fit(fit_reg, L)
+fit2_reg <- eBayes(fit2_reg)
+```
+
+
+### Toptable + CI
+```{r}
+list_res_gfc_2 <- list()
+for(i in colnames(L)){
+  
+
+dream_res <- topTable(fit2_reg, coef = i, number = Inf, adjust.method = "BH", sort.by = "none", lfc = 0, confint = T)
+
+dream_res <- tibble::rownames_to_column(dream_res, "cluster")
+
+
+print(nrow(dream_res[dream_res$adj.P.Val <=0.1,]))
+
+list_res_gfc_2[[i]] <- dream_res
+
+}
+```
+```{r}
+res_dream_gfc_2 <- do.call(rbind, Map(cbind, comparison = names(list_res_gfc_2),list_res_gfc_2))
+
+head(res_dream_gfc_2)
+```
+
+
+
+```{r}
+res_dream_gfc_2 <- as.data.frame(res_dream_gfc_2 %>% add_significance(p.col = "adj.P.Val", cutpoints = c(0, 1e-04, 0.001, 0.01, 0.05, 0.1, 1),
+  symbols = c("****", "***", "**", "*", "#", "ns")))
+
+res_dream_gfc_2$comp1 <- sub("age","",str_split_fixed(res_dream_gfc_2$comparison,"_vs",2)[,1])
+res_dream_gfc_2$comp1 <- factor(res_dream_gfc_2$comp1, levels =c("_30","_30_45","_45"))
+
+res_dream_gfc_2$comp2 <- sub("age","",str_split_fixed(res_dream_gfc_2$comparison,"_vs",2)[,2])
+res_dream_gfc_2$comp2 <- factor(res_dream_gfc_2$comp2, levels =c("_30","_30_45","_45"))
+
+table(res_dream_gfc_2$adj.P.Val.signif, res_dream_gfc_2$comparison)
+```
+```{r}
+sig_age <- unique(res_dream_gfc_2[res_dream_gfc_2$comparison != "sex" & res_dream_gfc_2$adj.P.Val < 0.05,]$cluster)
+cat(paste("sig age: ",paste(sig_age, collapse = ", "), sep = ""))
+sig_sex <- unique(res_dream_gfc_2[res_dream_gfc_2$comparison == "sex" & res_dream_gfc_2$adj.P.Val < 0.05,]$cluster)
+cat(paste("\nsig sex: ",paste(sig_sex, collapse = ", "), sep = ""))
+```
+
+```{r}
+## Create annotation data
+ann <- res_dream_gfc_2 %>%
+  filter(
+    comparison != "sex",
+    adj.P.Val < 0.05,
+    cluster %in% sig_age
+  ) %>%
+  mutate(
+    xmin = case_when(
+      comp2 == "_30"    ~ 1,
+      comp2 == "_30_45" ~ 2
+    ),
+    xmax = case_when(
+      comp1 == "_30_45" ~ 2,
+      comp1 == "_45"    ~ 3
+    )
+  )
+
+## Set height of significance brackets
+ann <- ann %>%
+  arrange(xmin, xmax, cluster) %>%
+  mutate(
+    y = 0.62 + (row_number() - 1) * 0.045
+  )
+
+```
+
+
+```{r}
+p <- ggplot(
+  subset(gfc.ind_melt, cluster %in% sig_age),
+  aes(x = age_cat, y = value, group = cluster)
+) +
+  stat_summary(
+    fun.data = mean_se,
+    geom = "ribbon",
+    alpha = 0.2,
+    aes(fill = cluster)
+  ) +
+  stat_summary(
+    fun = mean,
+    geom = "line",
+    linewidth = 0.5,
+    aes(color = cluster)
+  ) +
+
+  ## horizontal significance line
+  geom_segment(
+    data = ann,
+    aes(
+      x = xmin, xend = xmax,
+      y = y, yend = y,
+      color = cluster
+    ),
+    inherit.aes = FALSE,
+    linewidth = 0.5
+  ) +
+
+  ## left end of bracket
+  geom_segment(
+    data = ann,
+    aes(
+      x = xmin, xend = xmin,
+      y = y, yend = y - 0.025,
+      color = cluster
+    ),
+    inherit.aes = FALSE,
+    linewidth = 0.5
+  ) +
+
+  ## right end of bracket
+  geom_segment(
+    data = ann,
+    aes(
+      x = xmax, xend = xmax,
+      y = y, yend = y - 0.025,
+      color = cluster
+    ),
+    inherit.aes = FALSE,
+    linewidth = 0.5
+  ) +
+
+  ## significance
+  geom_text(
+    data = ann,
+    aes(
+      x = (xmin + xmax) / 2,
+      y = y + 0.025,
+      label = adj.P.Val.signif,
+      color = cluster
+    ),
+    inherit.aes = FALSE,
+    size = 3.5
+  ) +
+
+  scale_color_manual(values = col_cluster) +
+  scale_fill_manual(values = col_cluster) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0.05, 0.25))
+  ) +
+  theme_bw()
+
+p
+```
+
+
+```{r}
+
+ggplot(
+  subset(gfc.ind_melt, cluster %in% sig_sex),
+  aes(
+    x = sex,
+    y = value,
+    fill = sex
+  )
+) +
+  geom_violin(
+    trim = FALSE
+  ) +
+  geom_boxplot(
+    width = 0.12,
+    fill = "white",
+    outlier.shape = NA, aes(color = sex)
+  ) +
+  scale_color_manual(values = col_sex)+
+  scale_fill_manual(values = col_sex)+
+  facet_wrap(~cluster, scales = "free_y") +
+  theme_bw()
+```
+
+
+
+### summarise all sig
+```{r}
+sig_linear <- res_dream_gfc_2
+sig_linear$model <- "model1" 
+sig_linear$test <- sig_linear$comparison
+sig_inter <- interaction_results_df
+sig_inter$model <- "model2"
+
+cols <- c("test","cluster","adj.P.Val","logFC","model")
+
+sig <- rbind(sig_linear[,cols], sig_inter[,cols]) #merge(sig_linear[,cols], sig_inter[,cols], by = "cluster", suffixes = c("_1","_2"), all.x = T, all.y = T)
+
+#sig <- subset(sig, adj.P.Val < 0.05)
+head(sig)
+```
+
+
+
+```{r}
+sig$color <- ifelse(sig$adj.P.Val < 0.05, sig$test, "")
+
+ggplot(sig, aes(x = cluster, y = -log10(adj.P.Val)))+
+  geom_point(aes(color = color), size = 2)+
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed")+
+  coord_flip()+
+  theme_bw()+
+  ggsci::scale_color_lancet()
+```
+```{r fig.width=4, fig.height=5}
+
+plotdf <- res_dream_gfc_2
+
+plotdf$order <- ifelse(plotdf$cluster %in% intersect(sig_sex, sig_age), 2, ifelse(plotdf$cluster %in% c(sig_sex, sig_age),1, 0))
+
+cluster_size <- as.data.frame(table(clusters_melt$cluster))
+
+plotdf$size_cluster <- as.numeric(cluster_size[match(plotdf$cluster, cluster_size$Var1), ]$Freq)
+  
+plotdf$name <- paste(plotdf$cluster,"[",plotdf$size_cluster,"]")
+
+plotdf$label <- ifelse(plotdf$adj.P.Val.signif == "ns", "", plotdf$adj.P.Val.signif)
+
+plotdf$facet <- ifelse(plotdf$comparison == "sex", "Sex", "Age cat")
+
+p1 <- ggplot(plotdf, aes(x = comparison, y = reorder(name, order) ))+
+  geom_tile(aes(fill = logFC))+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0)+
+  theme_classic()+ 
+  geom_text(aes(label = label), size = 5)+
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), axis.title.y = element_blank())+
+  facet_grid(. ~ facet, scales = "free", space = "free")
+
+# bar
+p2 <- ggplot(plotdf, aes(x = "", y = reorder(cluster, order) ))+
+  geom_tile(aes(fill = cluster))+
+  scale_fill_manual(values = col_cluster)+
+  geom_text(aes(label = size_cluster))+
+  theme_void()+
+  theme(legend.position = "none")
+  
+p2 + p1 + plot_layout(widths = c(0.2,1.5), nrow = 1)
+```
+
+
+```{r}
+intersect(sig_sex, sig_age)
+```
+```{r}
+sig_mod2 <- subset(sig,  model == "model2" & adj.P.Val < 0.1)
+sig_mod2
+```
+
+
+## 4.9. Export tables
+```{r}
+## lipids assignment to modules
+exportdf <- clusters_melt[,c("cluster","lipid")]
+exportdf <- exportdf[!duplicated(exportdf$lipid),]
+exportdf <- exportdf %>% group_by(cluster) %>% summarise(n = n(), lipids = paste(lipid, collapse = ", "))
+```
+
+```{r}
+## results model1
+exportdf1 <- res_dream_gfc_2[,c("comparison","cluster","logFC", "P.Value", "adj.P.Val","adj.P.Val.signif")]
+exportdf1 <- exportdf1[order(exportdf1$adj.P.Val, decreasing = F),]
+exportdf1$model <- "age category + sex"
+## results model2
+exportdf2 <- interaction_results_df[,c("test","cluster","logFC", "P.Value", "adj.P.Val","adj.P.Val.signif")]
+colnames(exportdf2)[colnames(exportdf2) == "test"] <- c("comparison")
+exportdf2 <- exportdf2[order(exportdf2$adj.P.Val, decreasing = F),]
+exportdf2$model <- "age category x sex"
+
+exportdf <- rbind(exportdf1, exportdf2)
+
+write.csv(exportdf, paste0("./output_tables/",gsub("-","", Sys.Date()),"_network_lm_sex_agecat.csv"))
+
+df <- exportdf
+
+# Round all numeric columns to 3 decimals
+df[] <- lapply(df, function(x) {
+  if (is.numeric(x)) sprintf("%.3f", x) else x
+})
+
+# Format P-value columns
+p_cols <- c("P.Value", "adj.P.Val")
+
+df[p_cols] <- lapply(df[p_cols], function(x) {
+  x <- as.numeric(x)
+  ifelse(x < 0.001, "<0.001", sprintf("%.3f", x))
+})
+
+## htmal format 
+html <- paste0(
+  '<html>
+  <head>
+  <style>
+  table {
+    border-collapse: collapse;
+    font-family: Arial;
+    font-size: 9pt;
+    width: 100%;
+    border-top: 1px solid black;
+    border-bottom: 1px solid black;
+  }
+
+  th {
+    text-align: left;
+    font-weight: bold;
+    padding: 5px 8px;
+    border-bottom: 1px solid black;
+  }
+
+  td {
+    text-align: left;
+    padding: 5px 8px;
+    border: none;
+  }
+  </style>
+  </head>
+  <body>
+  <table>
+  <thead><tr>',
+  
+  paste0("<th>", names(df), "</th>", collapse = ""),
+  
+  '</tr></thead>
+  <tbody>',
+  
+  paste(
+    apply(df, 1, function(x)
+      paste0(
+        "<tr>",
+        paste0("<td>", x, "</td>", collapse = ""),
+        "</tr>"
+      )
+    ),
+    collapse = "\n"
+  ),
+  
+  '</tbody>
+  </table>
+  </body>
+  </html>'
+)
+
+```
+
+```{r}
+# write.csv(exportdf, paste0("./output_tables/",gsub("-","", Sys.Date()),"_network_lm_interaction_sex_agecat.csv"))
+```
+
+
+## 4.10.  Final module heatmap and network
+
+  If you regrouped your samples AND/OR conducted any steps in the "Module analysis and meta-annotation"-section, the heatmap will be re-plotted updated with respect to the grouping and annotation information along with the network coloured by modules. If You have neither regrouped your sample nor analysed your modules or samples groups, this chunk will provide the exact same output as the previous one and can be skipped. 
+  
+```{r create module heatmap, fig.width = 10, fig.height = 7}
+
+plot_cluster_heatmap()
+
+plot_integrated_network(layout = hcobject[["integrated_output"]][["cluster_calc"]][["layout"]], 
+                        save = T)
+
+```
+
+
+## 4.11. Save essential information
+
+  The parameters of the analysis session are written to a text file to enhance reproducibility without keeping and sharing a markdown for every analysis. It documents the name of the files and their location used as count and annotation files, the global settings set in the session, the layer settings set for each dataset as well as the cut-offs and the clustering algorithm used. 
+  The file can be found in the save-folder.
+  
+```{r write session info}
+
+write_session_info()
+
+```
+
+```{r}
+sessionInfo()
+```
+
